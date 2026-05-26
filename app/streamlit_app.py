@@ -19,7 +19,6 @@ os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
 import streamlit as st
 
-from crewai_layer.crew_setup import run_diagnostic_crew, warm_kb_for_streamlit
 from utils.config import ensure_openai_api_key
 from utils.security import sanitize_user_input
 
@@ -59,9 +58,9 @@ def _inject_css() -> None:
 
 
 @st.cache_resource(show_spinner=False)
-def _bootstrap_kb() -> bool:
-    warm_kb_for_streamlit()
-    return True
+def _get_crew_runner():
+    from crewai_layer.crew_setup import run_diagnostic_crew
+    return run_diagnostic_crew
 
 
 def init_session_state() -> None:
@@ -171,6 +170,7 @@ def main() -> None:
 
     with st.chat_message("assistant"):
         with st.status("Running retrieval · planner · safety review…", expanded=False) as status:
+            run_diagnostic_crew = _get_crew_runner()
             result = run_diagnostic_crew(
                 conversation_history=st.session_state["messages"],
                 user_message=sanitized,
