@@ -1,8 +1,42 @@
+import json
 from typing import Any
 
 from crewai.tools import tool
 
 from retrieval.retriever import retrieve_issues, retrieve_safety_notes
+
+# Alternate key names the LLM sometimes uses → canonical name expected by retriever
+_KEY_ALIASES = {
+    "vehicle_make": "make",
+    "vehicle_model": "model",
+    "primary_symptoms": "symptoms",
+    "symptom": "symptoms",
+    "free_text": "symptoms",
+    "suspected_subsystem": "subsystem",
+    "vehicle_year": "year",
+    "usage_hours": "mileage",
+}
+
+
+def _normalise_context(raw: Any) -> dict[str, Any]:
+    """Accept dict or JSON string; normalise aliased keys."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return {"free_text": raw}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for k, v in raw.items():
+        canonical = _KEY_ALIASES.get(k.lower().strip(), k.lower().strip())
+        out[canonical] = v
+    # merge symptom-like fields into a single "symptoms" string
+    parts = [str(out.get("symptoms") or ""), str(out.get("free_text") or "")]
+    merged = " ".join(p for p in parts if p).strip()
+    if merged:
+        out["symptoms"] = merged
+    return out
 
 
 @tool("retrieve_issue_info_tool")
@@ -15,7 +49,8 @@ def retrieve_issue_info_tool(query_context: dict[str, Any]) -> str:
     Tool output is verbatim row fields plus an internal similarity score column
     `_retrieval_similarity` when matches are statistically strong enough.
     """
-    issues = retrieve_issues(dict(query_context or {}), top_k=5)
+    ctx = _normalise_context(query_context)
+    issues = retrieve_issues(ctx, top_k=5)
     if not issues:
 
         return "NO_MATCHES_FOUND"
