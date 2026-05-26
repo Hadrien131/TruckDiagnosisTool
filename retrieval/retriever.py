@@ -8,6 +8,7 @@ from threading import Lock
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from retrieval.kb_loader import load_truck_issues, load_safety_bulletins, truck_kb_mtime_key
@@ -16,6 +17,21 @@ from retrieval.kb_loader import load_truck_issues, load_safety_bulletins, truck_
 _MIN_TOP_SIM = float(os.getenv("TRUCK_KB_MIN_TFIDF_SIM", "0.06"))
 # Margin between top-1 and top-2; tiny margin => ambiguous / bogus match.
 _MIN_MARGIN = float(os.getenv("TRUCK_KB_MIN_TFIDF_MARGIN", "0.005"))
+
+# Symptom keyword patterns → (numeric column, direction)
+# Direction "high" means a high value indicates a problem; "low" means low value is the issue.
+_SYMPTOM_NUMERIC_MAP = [
+    (r"temp|overheat|hot\b|cool|thermal|heat", "Engine_Temperature", "high"),
+    (r"vibrat|shake|rough|knock|rattle", "Vibration_Levels", "high"),
+    (r"fuel\b|consumption|economy|mpg", "Fuel_Consumption", "high"),
+    (r"oil\b|lubricat", "Oil_Quality", "low"),
+    (r"battery|electr|charg|volt", "Battery_Status", "low"),
+    (r"efficien|power.?loss|derate|perform|sluggish|reduced", "Impact_on_Efficiency", "high"),
+    (r"fail|fault|defect|broke|broken|anomal|unusual", "Failure_History", "high"),
+    (r"brake|braking|stopping", "Brake_Condition", "poor"),
+    (r"maintenance|service|overhaul|repair", "Maintenance_Required", "high"),
+    (r"pressure|tire|tyre", "Tire_Pressure", "low"),
+]
 
 _CACHE_LOCK = Lock()
 _ISSUES_INDEX_CACHE: dict[str, Any] = {}
@@ -148,6 +164,83 @@ def _build_issues_search_index(force: bool) -> tuple[Any, TfidfVectorizer, Any, 
         _ISSUES_INDEX_CACHE = bundle
 
         return df, vectorizer, matrix, text_cols or []
+
+
+def _compute_numeric_scores(df: pd.DataFrame, query: str) -> tuple[np.ndarray, int]:
+    """Score rows by how closely their numeric columns match symptom keywords in the query."""
+    n = len(df)
+    scores = np.zeros(n)
+    signals = 0
+    query_lower = query.lower()
+    cols = df.columns.tolist()
+
+    for pattern, col, direction in _SYMPTOM_NUMERIC_MAP:
+        if col not in cols:
+            continue
+        if not re.search(pattern, query_lower):
+            continue
+        signals += 1
+
+        if col == "Brake_Condition":
+            col_scores = df[col].map({"Poor": 1.0, "Fair": 0.5, "Good": 0.0}).fillna(0.5).values
+        elif direction == "high":
+            vals = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+            vmin, vmax = vals.min(), vals.max()
+            col_scores = ((vals - vmin) / (vmax - vmin)).values if vmax > vmin else np.zeros(n)
+        else:
+            vals = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+            vmin, vmax = vals.min(), vals.max()
+            col_scores = (1 - (vals - vmin) / (vmax - vmin)).values if vmax > vmin else np.zeros(n)
+
+        scores += col_scores
+
+    # Background signal: rows with failure history or anomalies are inherently more relevant
+    for bg_col in ("Failure_History", "Anomalies_Detected"):
+        if bg_col in cols:
+            vals = pd.to_numeric(df[bg_col], errors="coerce").fillna(0.0)
+            vmax = vals.max()
+            if vmax > 0:
+                scores += 0.15 * (vals / vmax).values
+
+    if signals > 0:
+        scores /= signals
+
+    return scores, signals
+
+
+def _retrieve_by_numeric_score(
+    df: pd.DataFrame,
+    eligible_mask: np.ndarray,
+    query: str,
+    context: dict[str, Any],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    """Fallback retrieval using numeric symptom scoring when TF-IDF finds no text matches."""
+    eligible_df = df[eligible_mask].reset_index(drop=False)
+    scores, n_signals = _compute_numeric_scores(eligible_df, query)
+
+    if n_signals == 0:
+        return []
+
+    top_idx = np.argsort(scores)[::-1][:top_k]
+    out: list[dict[str, Any]] = []
+    for i in top_idx:
+        if scores[i] <= 0:
+            continue
+        row = eligible_df.iloc[int(i)].to_dict()
+        row.pop("index", None)
+        row["_retrieval_similarity"] = round(float(scores[i]), 4)
+        row["_retrieval_method"] = "numeric_symptom_match"
+        out.append(row)
+
+    if out:
+        context["retrieval_note"] = (
+            f"TF-IDF found no text matches; returned {len(out)} rows scored by "
+            f"numeric symptom similarity ({n_signals} symptom signal(s) detected)."
+        )
+        context["retrieval_method"] = "numeric_fallback"
+
+    return out
 
 
 def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, Any]]:
@@ -292,6 +385,13 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
     )
 
     if gate_fail:
+        # TF-IDF found no strong text matches — try numeric symptom scoring on the
+        # make/model-filtered candidates before giving up entirely.
+        if int(eligible.sum()) >= 3:
+            numeric_results = _retrieve_by_numeric_score(df, eligible, query, context, top_k)
+            if numeric_results:
+                return numeric_results
+
         context["retrieval_note"] = (
             (context.get("retrieval_note") or "")
             + f" Retrieval skipped weak matches (top_sim={max_sim:.4f})."
