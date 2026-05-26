@@ -128,8 +128,8 @@ def _build_issues_search_index(force: bool) -> tuple[Any, TfidfVectorizer, Any, 
 
         vectorizer = TfidfVectorizer(
             stop_words="english",
-            max_features=int(os.getenv("TRUCK_KB_TFIDF_MAX_FEATURES", "20000")),
-            ngram_range=(1, 2),
+            max_features=int(os.getenv("TRUCK_KB_TFIDF_MAX_FEATURES", "6000")),
+            ngram_range=(1, 1),
             min_df=2,
             sublinear_tf=True,
         )

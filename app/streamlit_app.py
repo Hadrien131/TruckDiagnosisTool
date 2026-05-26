@@ -73,7 +73,8 @@ def init_session_state() -> None:
             },
         ]
     if "_kb_ready" not in st.session_state:
-        st.session_state["_kb_ready"] = _bootstrap_kb()
+        # Build index lazily so the page renders before the heavy TF-IDF fit.
+        st.session_state["_kb_ready"] = False
 
 
 def _safe_default_load(selection: list[str], value: str) -> str:
