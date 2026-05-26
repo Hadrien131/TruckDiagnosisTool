@@ -231,13 +231,20 @@ def _retrieve_by_numeric_score(
 
     scores, n_signals = _compute_numeric_scores(eligible_df, rich_query)
 
-    # Even with no detected signals, background scores (Failure_History + Anomalies_Detected)
-    # are non-zero — return the most at-risk rows rather than nothing.
+    # Predictive_Score as an additional tiebreaker — ranks rows by maintenance urgency
+    # when no symptom keywords are detected.
+    if "Predictive_Score" in eligible_df.columns:
+        pred = pd.to_numeric(eligible_df["Predictive_Score"], errors="coerce").fillna(0.0)
+        pmax = float(pred.max())
+        if pmax > 0:
+            scores += 0.1 * (pred.values / pmax)
+
     top_idx = np.argsort(scores)[::-1][:top_k]
     out: list[dict[str, Any]] = []
     for i in top_idx:
-        if scores[i] <= 0:
-            continue
+        # Always include top_k make/model-filtered rows regardless of score magnitude.
+        # The eligibility filter already ensures these rows match the operator's vehicle,
+        # so returning a zero-scored row is still more useful than returning nothing.
         row = eligible_df.iloc[int(i)].to_dict()
         row.pop("index", None)
         row["_retrieval_similarity"] = round(float(scores[i]), 4)
@@ -245,7 +252,7 @@ def _retrieve_by_numeric_score(
         out.append(row)
 
     if out:
-        method = f"numeric symptom match ({n_signals} signal(s))" if n_signals else "failure/anomaly history ranking"
+        method = f"numeric symptom match ({n_signals} signal(s))" if n_signals else "predictive score / failure history ranking"
         context["retrieval_note"] = (
             f"TF-IDF found no text matches; returned {len(out)} rows by {method}."
         )
