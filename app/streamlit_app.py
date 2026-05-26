@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import html
+import sys
 from pathlib import Path
 from typing import Any, Dict
+
+# Ensure repo root is on sys.path so sibling packages (crewai_layer, utils, etc.)
+# are importable when Streamlit Cloud runs the app from the app/ subdirectory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
