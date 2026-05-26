@@ -11,6 +11,12 @@ from typing import Any, Dict
 # are importable when Streamlit Cloud runs the app from the app/ subdirectory.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import os
+# Disable OpenTelemetry before crewai imports — without a collector the GRPC
+# connection attempt hangs silently on Streamlit Cloud.
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+
 import streamlit as st
 
 from crewai_layer.crew_setup import run_diagnostic_crew, warm_kb_for_streamlit
