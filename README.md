@@ -29,7 +29,13 @@ and safety bulletins at:
 
 `data/safety_bulletins.csv`
 
-Configure whichever API keys CrewAI/OpenAI adapters expect in `.env`.
+For local Streamlit runs, put your OpenAI key in `.streamlit/secrets.toml`:
+
+```toml
+openai_api_key2 = "sk-..."
+```
+
+The app also accepts `OPENAI_API_KEY`, `OPENAI_API_KEY2`, or `openai_api_key` from your shell environment. Do not commit local secret files.
 
 ---
 

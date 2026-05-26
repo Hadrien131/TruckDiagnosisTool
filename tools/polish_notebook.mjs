@@ -137,7 +137,7 @@ function annotateSpecialCells(cell) {
       txt =
         `# --- Section 1: Drive mount + secrets (Colab lecture path) ---\n` +
         `# Mount Drive, cd into YOUR copy of TruckDiagnosisTool, then hydrate OPENAI_* via Colab Secrets.\n` +
-        `# Locally: SKIP this entire cell and load keys from '.env' / your shell instead.\n\n` +
+        `# Locally: SKIP this entire cell and load keys from '.streamlit/secrets.toml' or your shell instead.\n\n` +
         txt.replace(/^#\s*Cell 1[^\n]*\n\n?/i, "");
       setSource(cell, txt);
     }

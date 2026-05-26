@@ -9,6 +9,7 @@ from typing import Any, Dict
 import streamlit as st
 
 from crewai_layer.crew_setup import run_diagnostic_crew, warm_kb_for_streamlit
+from utils.config import ensure_openai_api_key
 from utils.security import sanitize_user_input
 
 _BASE = Path(__file__).resolve().parent.parent
@@ -53,6 +54,8 @@ def _bootstrap_kb() -> bool:
 
 
 def init_session_state() -> None:
+    _load_streamlit_secret_keys()
+    ensure_openai_api_key()
     if "messages" not in st.session_state:
         st.session_state["messages"] = [
             {
@@ -108,6 +111,18 @@ def side_vehicle_form() -> Dict[str, Any]:
             "load_condition": load_condition,
             "recent_maintenance": recent_maintenance.strip(),
         }
+
+
+def _load_streamlit_secret_keys() -> None:
+    for key_name in ("OPENAI_API_KEY", "OPENAI_API_KEY2", "openai_api_key2", "openai_api_key"):
+        try:
+            value = st.secrets.get(key_name)
+        except Exception:
+            continue
+        if value:
+            import os
+
+            os.environ.setdefault(key_name, str(value))
 
 
 def main() -> None:
