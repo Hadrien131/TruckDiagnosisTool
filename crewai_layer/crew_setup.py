@@ -13,7 +13,7 @@ from crewai_layer.tasks import (
     create_review_safety_task,
     create_synthesize_response_task,
 )
-from retrieval.retriever import prime_truck_issues_index
+from retrieval.retriever import prime_truck_issues_index, set_session_context
 from utils.logging_utils import get_project_logger
 
 logger = get_project_logger()
@@ -70,6 +70,19 @@ def run_diagnostic_crew(
     ui_context = dict(ui_context or {})
     formatted_history = _format_conversation(conversation_history)
     serialized_ui = json.dumps(ui_context, indent=2, default=str)
+
+    # Inject full context as server-side fallback so the retriever has user_message
+    # and all sidebar fields even when the LLM passes a sparse query_context dict.
+    set_session_context({
+        "make": ui_context.get("make", ""),
+        "model": ui_context.get("model", ""),
+        "year": ui_context.get("year", ""),
+        "mileage": ui_context.get("mileage", ""),
+        "user_message": user_message.strip(),
+        "recent_maintenance": ui_context.get("recent_maintenance", ""),
+        "ambient_notes": ui_context.get("ambient_notes", ""),
+        "load_condition": ui_context.get("load_condition", ""),
+    })
 
     agents = create_all_agents()
 

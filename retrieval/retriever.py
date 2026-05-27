@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from threading import Lock
+from threading import Lock, local as _threading_local
 from typing import Any
 
 import numpy as np
@@ -17,6 +17,20 @@ from retrieval.kb_loader import load_truck_issues, load_safety_bulletins, truck_
 _MIN_TOP_SIM = float(os.getenv("TRUCK_KB_MIN_TFIDF_SIM", "0.06"))
 # Margin between top-1 and top-2; tiny margin => ambiguous / bogus match.
 _MIN_MARGIN = float(os.getenv("TRUCK_KB_MIN_TFIDF_MARGIN", "0.005"))
+
+# Per-request session context: set once per crew run from the full UI payload so
+# the retrieval tool always has user_message + sidebar fields even when the LLM
+# passes a sparse query_context dict.
+_SESSION_LOCAL = _threading_local()
+
+
+def set_session_context(ctx: dict[str, Any]) -> None:
+    """Called by crew_setup before kickoff to inject the full UI payload as a fallback."""
+    _SESSION_LOCAL.ctx = dict(ctx)
+
+
+def get_session_context() -> dict[str, Any]:
+    return getattr(_SESSION_LOCAL, "ctx", {})
 
 # Symptom keyword patterns → (numeric column, direction)
 # Direction "high" means a high value indicates a problem; "low" means low value is the issue.
@@ -211,22 +225,40 @@ def _compute_numeric_scores(df: pd.DataFrame, query: str) -> tuple[np.ndarray, i
 def _retrieve_by_numeric_score(
     df: pd.DataFrame,
     eligible_mask: np.ndarray,
-    query: str,
     context: dict[str, Any],
     top_k: int,
 ) -> list[dict[str, Any]]:
     """Fallback retrieval using numeric symptom scoring when TF-IDF finds no text matches."""
     eligible_df = df[eligible_mask].reset_index(drop=False)
-    scores, n_signals = _compute_numeric_scores(eligible_df, query)
 
-    if n_signals == 0:
-        return []
+    # Build the richest possible query from all available context fields so that
+    # symptom keywords are detected even if the 'symptoms' key is sparse or empty.
+    rich_query = " ".join(filter(None, [
+        str(context.get("symptoms") or ""),
+        str(context.get("primary_symptoms") or ""),
+        str(context.get("free_text") or ""),
+        str(context.get("recent_maintenance") or ""),
+        str(context.get("operating_conditions") or ""),
+        str(context.get("ambient_notes") or ""),
+        str(context.get("user_message") or ""),
+    ]))
+
+    scores, n_signals = _compute_numeric_scores(eligible_df, rich_query)
+
+    # Predictive_Score as an additional tiebreaker — ranks rows by maintenance urgency
+    # when no symptom keywords are detected.
+    if "Predictive_Score" in eligible_df.columns:
+        pred = pd.to_numeric(eligible_df["Predictive_Score"], errors="coerce").fillna(0.0)
+        pmax = float(pred.max())
+        if pmax > 0:
+            scores += 0.1 * (pred.values / pmax)
 
     top_idx = np.argsort(scores)[::-1][:top_k]
     out: list[dict[str, Any]] = []
     for i in top_idx:
-        if scores[i] <= 0:
-            continue
+        # Always include top_k make/model-filtered rows regardless of score magnitude.
+        # The eligibility filter already ensures these rows match the operator's vehicle,
+        # so returning a zero-scored row is still more useful than returning nothing.
         row = eligible_df.iloc[int(i)].to_dict()
         row.pop("index", None)
         row["_retrieval_similarity"] = round(float(scores[i]), 4)
@@ -234,9 +266,9 @@ def _retrieve_by_numeric_score(
         out.append(row)
 
     if out:
+        method = f"numeric symptom match ({n_signals} signal(s))" if n_signals else "predictive score / failure history ranking"
         context["retrieval_note"] = (
-            f"TF-IDF found no text matches; returned {len(out)} rows scored by "
-            f"numeric symptom similarity ({n_signals} symptom signal(s) detected)."
+            f"TF-IDF found no text matches; returned {len(out)} rows by {method}."
         )
         context["retrieval_method"] = "numeric_fallback"
 
@@ -253,6 +285,12 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
       should treat this as NO_MATCHES and avoid inventing plausible truck stories from
       unrelated rows.
     """
+    # Merge server-side session context as fallback: LLM-provided values win,
+    # but any field left empty by the LLM is filled from the full UI payload.
+    session = get_session_context()
+    for key, val in session.items():
+        if key not in context or not context[key]:
+            context[key] = val
 
     df, vectorizer, matrix, text_cols = _build_issues_search_index(force=False)
 
@@ -388,7 +426,7 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
         # TF-IDF found no strong text matches — try numeric symptom scoring on the
         # make/model-filtered candidates before giving up entirely.
         if int(eligible.sum()) >= 3:
-            numeric_results = _retrieve_by_numeric_score(df, eligible, query, context, top_k)
+            numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k)
             if numeric_results:
                 return numeric_results
 

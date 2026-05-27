@@ -24,14 +24,18 @@ def create_analyze_symptom_task(supervisor: Agent) -> Task:
 def create_retrieve_issues_task(retriever: Agent) -> Task:
     return Task(
         description=(
-            "Structured context sits in outputs of Task 1; DO NOT overwrite it.\n\n"
-            "TASK: Immediately call retrieve_issue_info_tool once with Python dict literal keys matching "
-            '{"make":"vehicle_make","model":"vehicle_model","symptoms":"<primary_symptoms + free_text + '
-            '{user_message} keywords>","subsystem":"suspected_subsystem","mileage":"<from JSON>",'
-            '"year":"<from JSON>"}'
-            "; inject missing blanks if necessary.\n"
-            "Return ONLY the verbatim tool blob (CANDIDATE_ISSUES_*) plus a ONE-line note PASS/FAIL on "
-            "whether rows appear relevant versus {user_message}."
+            "Structured context is in Task 1 output. DO NOT overwrite it.\n\n"
+            "Call retrieve_issue_info_tool ONCE with this exact dict (fill values from Task 1 JSON):\n"
+            "  make      → the vehicle_make value  (e.g. 'Volvo')\n"
+            "  model     → the vehicle_model value  (e.g. 'FH')\n"
+            "  symptoms  → concatenate ALL of: primary_symptoms field + free_text field + the key symptom "
+            "words extracted from the user message: {user_message}\n"
+            "  subsystem → suspected_subsystem value\n"
+            "  mileage   → mileage value\n"
+            "  year      → year value\n"
+            "  recent_maintenance → recent_maintenance value from Task 1 JSON\n\n"
+            "IMPORTANT: symptoms MUST be a non-empty string combining Task 1 fields with the user wording above.\n"
+            "Return ONLY the verbatim tool output plus a ONE-line PASS/FAIL relevance note."
         ),
         expected_output="Tool output verbatim + one-line PASS/FAIL relevance note.",
         agent=retriever,

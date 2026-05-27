@@ -51,11 +51,17 @@ def retrieve_issue_info_tool(query_context: dict[str, Any]) -> str:
     """
     ctx = _normalise_context(query_context)
     issues = retrieve_issues(ctx, top_k=5)
+    sim = float(ctx.get("retrieval_best_similarity", 0.0) or 0.0)
+    method = ctx.get("retrieval_method", "tfidf")
+    debug_line = (
+        f"[DEBUG make={ctx.get('make','?')} model={ctx.get('model','?')} "
+        f"symptoms_len={len(str(ctx.get('symptoms','')))} "
+        f"sim={sim:.4f} method={method} note={ctx.get('retrieval_note','')}]"
+    )
     if not issues:
+        return f"{debug_line}\nNO_MATCHES_FOUND"
 
-        return "NO_MATCHES_FOUND"
-
-    lines: list[str] = ["CANDIDATE_ISSUES_START"]
+    lines: list[str] = [debug_line, "CANDIDATE_ISSUES_START"]
     for i, issue in enumerate(issues, start=1):
 
         lines.append(f"- ISSUE #{i}")
