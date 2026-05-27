@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from threading import Lock
 from typing import Any
+
+log = logging.getLogger("truck_diag")
 
 import numpy as np
 import pandas as pd
@@ -244,6 +247,13 @@ def _retrieve_by_numeric_score(
         str(context.get("ambient_notes") or ""),
         str(context.get("user_message") or ""),
     ]))
+
+    log.info("NUMERIC_SCORE_DEBUG rich_query=%r signals_check: vib=%s brake=%s fuel=%s eligible=%d",
+             rich_query[:200],
+             bool(re.search(r"vibrat|shake|rough|knock|rattle", rich_query.lower())),
+             bool(re.search(r"brake|braking|stopping", rich_query.lower())),
+             bool(re.search(r"fuel\b|consumption|economy|mpg", rich_query.lower())),
+             int(eligible_mask.sum()))
 
     # Subset to eligible rows first, then score — this preserves the exact ranking
     # behaviour that was validated in v6.4 (Poor-brake / high-vibration rows surface first).
