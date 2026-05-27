@@ -156,7 +156,7 @@ def main() -> None:
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
         "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
-        "<small style='opacity:.5'>v6.4</small></p></div>",
+        "<small style='opacity:.5'>v6.5</small></p></div>",
         unsafe_allow_html=True,
     )
 
@@ -180,14 +180,21 @@ def main() -> None:
         st.markdown(sanitized)
 
     with st.chat_message("assistant"):
-        with st.status("Running retrieval · planner · safety review…", expanded=False) as status:
+        first_run = not st.session_state.get("_kb_ready", False)
+        spinner_label = (
+            "⏳ First query after restart — building index & warming up (this can take a few minutes)…"
+            if first_run
+            else "Running retrieval · planner · safety review…"
+        )
+        with st.status(spinner_label, expanded=False) as status:
             run_diagnostic_crew = _get_crew_runner()
             result = run_diagnostic_crew(
                 conversation_history=st.session_state["messages"],
                 user_message=sanitized,
                 ui_context=ui_context,
             )
-            status.update(label="Complete", state="complete")
+            status.update(label="Complete ✓", state="complete")
+            st.session_state["_kb_ready"] = True
         final_md = _strip_code_fence(result.get("final_markdown", "(no textual output captured)"))
         st.markdown(final_md)
 
