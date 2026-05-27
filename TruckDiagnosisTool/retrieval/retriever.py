@@ -233,8 +233,6 @@ def _retrieve_by_numeric_score(
     top_k: int,
 ) -> list[dict[str, Any]]:
     """Fallback retrieval using numeric symptom scoring when TF-IDF finds no text matches."""
-    eligible_df = df[eligible_mask].reset_index(drop=False)
-
     # Build the richest possible query from all available context fields so that
     # symptom keywords are detected even if the 'symptoms' key is sparse or empty.
     rich_query = " ".join(filter(None, [
@@ -246,6 +244,10 @@ def _retrieve_by_numeric_score(
         str(context.get("ambient_notes") or ""),
         str(context.get("user_message") or ""),
     ]))
+
+    # Subset to eligible rows first, then score — this preserves the exact ranking
+    # behaviour that was validated in v6.4 (Poor-brake / high-vibration rows surface first).
+    eligible_df = df[eligible_mask].reset_index(drop=False)
 
     scores, n_signals = _compute_numeric_scores(eligible_df, rich_query)
 
@@ -265,7 +267,6 @@ def _retrieve_by_numeric_score(
     top_idx = np.argsort(norm_scores)[::-1][:top_k]
     out: list[dict[str, Any]] = []
     for i in top_idx:
-        # Always include top_k make/model-filtered rows regardless of score magnitude.
         row = eligible_df.iloc[int(i)].to_dict()
         row.pop("index", None)
         row["_retrieval_similarity"] = round(float(norm_scores[i]), 4)
