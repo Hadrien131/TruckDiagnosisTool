@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -55,6 +56,15 @@ div[data-testid="stMarkdownContainer"] p { line-height: 1.52; }
 
 def _inject_css() -> None:
     st.markdown(_CUSTOM_CSS, unsafe_allow_html=True)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Remove ``` fences the LLM sometimes wraps its markdown output in."""
+    text = text.strip()
+    # e.g. ```markdown\n...\n``` or ```\n...\n```
+    text = re.sub(r"^```[a-zA-Z]*\n", "", text)
+    text = re.sub(r"\n```$", "", text)
+    return text.strip()
 
 
 @st.cache_resource(show_spinner=False)
@@ -146,7 +156,7 @@ def main() -> None:
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
         "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
-        "<small style='opacity:.5'>v6.2</small></p></div>",
+        "<small style='opacity:.5'>v6.3</small></p></div>",
         unsafe_allow_html=True,
     )
 
@@ -178,17 +188,10 @@ def main() -> None:
                 ui_context=ui_context,
             )
             status.update(label="Complete", state="complete")
-        st.markdown(result.get("final_markdown", "(no textual output captured)"))
+        final_md = _strip_code_fence(result.get("final_markdown", "(no textual output captured)"))
+        st.markdown(final_md)
 
-        tasks = result.get("tasks_output", [])
-        if tasks:
-            with st.expander("🔍 Pipeline debug — raw task outputs", expanded=False):
-                labels = ["T1 Symptom analysis", "T2 Retrieval", "T3 Plan", "T4 Safety", "T5 Synthesis"]
-                for i, t in enumerate(tasks):
-                    st.markdown(f"**{labels[i] if i < len(labels) else f'Task {i+1}'}**")
-                    st.code(str(t)[:3000], language=None)
-
-    st.session_state["messages"].append({"role": "assistant", "content": result["final_markdown"]})
+    st.session_state["messages"].append({"role": "assistant", "content": final_md})
 
 
 def _friendly_env_hint() -> None:
