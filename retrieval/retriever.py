@@ -389,6 +389,10 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
     elif make or model:
         context["retrieval_note"] = "Dataset has no make/model column detected; symptom-only retrieval."
 
+    log.info("RETRIEVE_DEBUG make=%r model=%r symptoms_len=%d subset_count=%s not_in_kb=%s",
+             make, model, len(symptoms), context.get("kb_make_model_candidates", "n/a"),
+             context.get("make_model_not_in_kb", False))
+
     if sub_col is not None and subsystem and subsystem != "general":
         ssub = df[sub_col].astype(str).str.lower()
         subsystem_mask = ssub.str.contains(re.escape(subsystem), na=False)
