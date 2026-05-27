@@ -146,7 +146,7 @@ def main() -> None:
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
         "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
-        "<small style='opacity:.5'>v6</small></p></div>",
+        "<small style='opacity:.5'>v6.1</small></p></div>",
         unsafe_allow_html=True,
     )
 
