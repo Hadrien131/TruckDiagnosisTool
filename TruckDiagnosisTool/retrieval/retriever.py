@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import re
 from threading import Lock
 from typing import Any
-
-log = logging.getLogger("truck_diag")
 
 import numpy as np
 import pandas as pd
@@ -248,13 +245,6 @@ def _retrieve_by_numeric_score(
         str(context.get("user_message") or ""),
     ]))
 
-    log.info("NUMERIC_SCORE_DEBUG rich_query=%r signals_check: vib=%s brake=%s fuel=%s eligible=%d",
-             rich_query[:200],
-             bool(re.search(r"vibrat|shake|rough|knock|rattle", rich_query.lower())),
-             bool(re.search(r"brake|braking|stopping", rich_query.lower())),
-             bool(re.search(r"fuel\b|consumption|economy|mpg", rich_query.lower())),
-             int(eligible_mask.sum()))
-
     # Subset to eligible rows first, then score — this preserves the exact ranking
     # behaviour that was validated in v6.4 (Poor-brake / high-vibration rows surface first).
     eligible_df = df[eligible_mask].reset_index(drop=False)
@@ -388,10 +378,6 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
 
     elif make or model:
         context["retrieval_note"] = "Dataset has no make/model column detected; symptom-only retrieval."
-
-    log.info("RETRIEVE_DEBUG make=%r model=%r symptoms_len=%d subset_count=%s not_in_kb=%s",
-             make, model, len(symptoms), context.get("kb_make_model_candidates", "n/a"),
-             context.get("make_model_not_in_kb", False))
 
     if sub_col is not None and subsystem and subsystem != "general":
         ssub = df[sub_col].astype(str).str.lower()
