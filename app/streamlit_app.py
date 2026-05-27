@@ -180,6 +180,14 @@ def main() -> None:
             status.update(label="Complete", state="complete")
         st.markdown(result.get("final_markdown", "(no textual output captured)"))
 
+        tasks = result.get("tasks_output", [])
+        if tasks:
+            with st.expander("🔍 Pipeline debug — raw task outputs", expanded=False):
+                labels = ["T1 Symptom analysis", "T2 Retrieval", "T3 Plan", "T4 Safety", "T5 Synthesis"]
+                for i, t in enumerate(tasks):
+                    st.markdown(f"**{labels[i] if i < len(labels) else f'Task {i+1}'}**")
+                    st.code(str(t)[:3000], language=None)
+
     st.session_state["messages"].append({"role": "assistant", "content": result["final_markdown"]})
 
 
