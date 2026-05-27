@@ -73,11 +73,14 @@ def run_diagnostic_crew(
 
     # Inject full context as server-side fallback so the retriever has user_message
     # and all sidebar fields even when the LLM passes a sparse query_context dict.
+    # 'symptoms' is set to user_message so the retriever uses actual symptom text as the
+    # TF-IDF query, not just "Volvo FH" which produces near-identical scores for all rows.
     set_session_context({
         "make": ui_context.get("make", ""),
         "model": ui_context.get("model", ""),
         "year": ui_context.get("year", ""),
         "mileage": ui_context.get("mileage", ""),
+        "symptoms": user_message.strip(),
         "user_message": user_message.strip(),
         "recent_maintenance": ui_context.get("recent_maintenance", ""),
         "ambient_notes": ui_context.get("ambient_notes", ""),

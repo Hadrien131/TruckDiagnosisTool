@@ -253,15 +253,18 @@ def _retrieve_by_numeric_score(
         if pmax > 0:
             scores += 0.1 * (pred.values / pmax)
 
-    top_idx = np.argsort(scores)[::-1][:top_k]
+    # Normalise to [0, 1] relative to the best row so the LLM sees scores like 0.85
+    # instead of raw 0.04 values it tends to dismiss as "no match".
+    score_max = float(scores.max()) if scores.size and scores.max() > 0 else 1.0
+    norm_scores = scores / score_max
+
+    top_idx = np.argsort(norm_scores)[::-1][:top_k]
     out: list[dict[str, Any]] = []
     for i in top_idx:
         # Always include top_k make/model-filtered rows regardless of score magnitude.
-        # The eligibility filter already ensures these rows match the operator's vehicle,
-        # so returning a zero-scored row is still more useful than returning nothing.
         row = eligible_df.iloc[int(i)].to_dict()
         row.pop("index", None)
-        row["_retrieval_similarity"] = round(float(scores[i]), 4)
+        row["_retrieval_similarity"] = round(float(norm_scores[i]), 4)
         row["_retrieval_method"] = "numeric_symptom_match"
         out.append(row)
 
