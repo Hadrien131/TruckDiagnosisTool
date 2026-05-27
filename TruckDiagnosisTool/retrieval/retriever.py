@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from threading import Lock
+from threading import Lock, local as _threading_local
 from typing import Any
 
 import numpy as np
@@ -17,6 +17,20 @@ from retrieval.kb_loader import load_truck_issues, load_safety_bulletins, truck_
 _MIN_TOP_SIM = float(os.getenv("TRUCK_KB_MIN_TFIDF_SIM", "0.06"))
 # Margin between top-1 and top-2; tiny margin => ambiguous / bogus match.
 _MIN_MARGIN = float(os.getenv("TRUCK_KB_MIN_TFIDF_MARGIN", "0.005"))
+
+# Per-request session context: set once per crew run from the full UI payload so
+# the retrieval tool always has user_message + sidebar fields even when the LLM
+# passes a sparse query_context dict.
+_SESSION_LOCAL = _threading_local()
+
+
+def set_session_context(ctx: dict[str, Any]) -> None:
+    """Called by crew_setup before kickoff to inject the full UI payload as a fallback."""
+    _SESSION_LOCAL.ctx = dict(ctx)
+
+
+def get_session_context() -> dict[str, Any]:
+    return getattr(_SESSION_LOCAL, "ctx", {})
 
 # Symptom keyword patterns → (numeric column, direction)
 # Direction "high" means a high value indicates a problem; "low" means low value is the issue.
@@ -271,6 +285,12 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
       should treat this as NO_MATCHES and avoid inventing plausible truck stories from
       unrelated rows.
     """
+    # Merge server-side session context as fallback: LLM-provided values win,
+    # but any field left empty by the LLM is filled from the full UI payload.
+    session = get_session_context()
+    for key, val in session.items():
+        if key not in context or not context[key]:
+            context[key] = val
 
     df, vectorizer, matrix, text_cols = _build_issues_search_index(force=False)
 
