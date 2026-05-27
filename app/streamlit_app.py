@@ -156,7 +156,7 @@ def main() -> None:
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
         "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
-        "<small style='opacity:.5'>v6.5</small></p></div>",
+        "<small style='opacity:.5'>v6.6</small></p></div>",
         unsafe_allow_html=True,
     )
 
@@ -182,7 +182,7 @@ def main() -> None:
     with st.chat_message("assistant"):
         first_run = not st.session_state.get("_kb_ready", False)
         spinner_label = (
-            "⏳ First query after restart — building index & warming up (this can take a few minutes)…"
+            "⏳ First query after restart — building index & warming up (allow up to 10 min)…"
             if first_run
             else "Running retrieval · planner · safety review…"
         )

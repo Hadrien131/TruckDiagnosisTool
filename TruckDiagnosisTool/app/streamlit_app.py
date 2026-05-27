@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -55,6 +56,15 @@ div[data-testid="stMarkdownContainer"] p { line-height: 1.52; }
 
 def _inject_css() -> None:
     st.markdown(_CUSTOM_CSS, unsafe_allow_html=True)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Remove ``` fences the LLM sometimes wraps its markdown output in."""
+    text = text.strip()
+    # e.g. ```markdown\n...\n``` or ```\n...\n```
+    text = re.sub(r"^```[a-zA-Z]*\n", "", text)
+    text = re.sub(r"\n```$", "", text)
+    return text.strip()
 
 
 @st.cache_resource(show_spinner=False)
@@ -145,7 +155,8 @@ def main() -> None:
 
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
-        "<p>Grounded retrieval + procedural planning with explicit evidence separation.</p></div>",
+        "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
+        "<small style='opacity:.5'>v6.6</small></p></div>",
         unsafe_allow_html=True,
     )
 
@@ -169,17 +180,25 @@ def main() -> None:
         st.markdown(sanitized)
 
     with st.chat_message("assistant"):
-        with st.status("Running retrieval · planner · safety review…", expanded=False) as status:
+        first_run = not st.session_state.get("_kb_ready", False)
+        spinner_label = (
+            "⏳ First query after restart — building index & warming up (allow up to 10 min)…"
+            if first_run
+            else "Running retrieval · planner · safety review…"
+        )
+        with st.status(spinner_label, expanded=False) as status:
             run_diagnostic_crew = _get_crew_runner()
             result = run_diagnostic_crew(
                 conversation_history=st.session_state["messages"],
                 user_message=sanitized,
                 ui_context=ui_context,
             )
-            status.update(label="Complete", state="complete")
-        st.markdown(result.get("final_markdown", "(no textual output captured)"))
+            status.update(label="Complete ✓", state="complete")
+            st.session_state["_kb_ready"] = True
+        final_md = _strip_code_fence(result.get("final_markdown", "(no textual output captured)"))
+        st.markdown(final_md)
 
-    st.session_state["messages"].append({"role": "assistant", "content": result["final_markdown"]})
+    st.session_state["messages"].append({"role": "assistant", "content": final_md})
 
 
 def _friendly_env_hint() -> None:
