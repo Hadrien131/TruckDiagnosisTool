@@ -156,17 +156,23 @@ def main() -> None:
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
         "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
-        "<small style='opacity:.5'>v6.7</small></p></div>",
+        "<small style='opacity:.5'>v6.8</small></p></div>",
         unsafe_allow_html=True,
     )
 
     ui_context = side_vehicle_form()
 
+    if not ui_context.get("make") and not ui_context.get("model"):
+        st.info(
+            "👈 **Fill in the vehicle details in the sidebar first** — make, model, year and mileage "
+            "are used to search the fleet knowledge base. Once filled, describe the symptoms here."
+        )
+
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    prompt = st.chat_input("What's going on with the truck right now?")
+    prompt = st.chat_input("Describe symptoms & fault codes — fill the sidebar with vehicle details first")
     if not prompt:
         return
 
