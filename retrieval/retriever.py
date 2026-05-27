@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from threading import Lock, local as _threading_local
+from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -21,16 +21,20 @@ _MIN_MARGIN = float(os.getenv("TRUCK_KB_MIN_TFIDF_MARGIN", "0.005"))
 # Per-request session context: set once per crew run from the full UI payload so
 # the retrieval tool always has user_message + sidebar fields even when the LLM
 # passes a sparse query_context dict.
-_SESSION_LOCAL = _threading_local()
+# NOTE: threading.local does NOT cross thread boundaries — CrewAI tool calls run
+# in a different thread than the Streamlit session thread, so we use a plain
+# module-level dict instead. Single-user demo; concurrent-user race is acceptable.
+_SESSION_CONTEXT: dict[str, Any] = {}
 
 
 def set_session_context(ctx: dict[str, Any]) -> None:
     """Called by crew_setup before kickoff to inject the full UI payload as a fallback."""
-    _SESSION_LOCAL.ctx = dict(ctx)
+    global _SESSION_CONTEXT
+    _SESSION_CONTEXT = dict(ctx)
 
 
 def get_session_context() -> dict[str, Any]:
-    return getattr(_SESSION_LOCAL, "ctx", {})
+    return _SESSION_CONTEXT
 
 # Symptom keyword patterns → (numeric column, direction)
 # Direction "high" means a high value indicates a problem; "low" means low value is the issue.

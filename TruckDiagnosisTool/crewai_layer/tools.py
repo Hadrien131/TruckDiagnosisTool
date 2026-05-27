@@ -3,7 +3,7 @@ from typing import Any
 
 from crewai.tools import tool
 
-from retrieval.retriever import retrieve_issues, retrieve_safety_notes
+from retrieval.retriever import retrieve_issues, retrieve_safety_notes, get_session_context
 
 # Alternate key names the LLM sometimes uses → canonical name expected by retriever
 _KEY_ALIASES = {
@@ -50,6 +50,12 @@ def retrieve_issue_info_tool(query_context: dict[str, Any]) -> str:
     `_retrieval_similarity` when matches are statistically strong enough.
     """
     ctx = _normalise_context(query_context)
+    # Merge session context here (before debug line) so make/model/symptoms are
+    # visible even when the LLM passes an empty dict. Global dict works across threads;
+    # threading.local did not (CrewAI tool calls run in a different thread).
+    for key, val in get_session_context().items():
+        if key not in ctx or not ctx[key]:
+            ctx[key] = val
     issues = retrieve_issues(ctx, top_k=5)
     sim = float(ctx.get("retrieval_best_similarity", 0.0) or 0.0)
     method = ctx.get("retrieval_method", "tfidf")
