@@ -233,8 +233,6 @@ def _retrieve_by_numeric_score(
     top_k: int,
 ) -> list[dict[str, Any]]:
     """Fallback retrieval using numeric symptom scoring when TF-IDF finds no text matches."""
-    eligible_df = df[eligible_mask].reset_index(drop=False)
-
     # Build the richest possible query from all available context fields so that
     # symptom keywords are detected even if the 'symptoms' key is sparse or empty.
     rich_query = " ".join(filter(None, [
@@ -247,27 +245,34 @@ def _retrieve_by_numeric_score(
         str(context.get("user_message") or ""),
     ]))
 
-    scores, n_signals = _compute_numeric_scores(eligible_df, rich_query)
+    # Score on the full df (vectorised, no copy) then mask out ineligible rows.
+    # This avoids copying the entire 92k-row DataFrame when eligible_mask is all-True.
+    scores, n_signals = _compute_numeric_scores(df, rich_query)
 
     # Predictive_Score as an additional tiebreaker — ranks rows by maintenance urgency
     # when no symptom keywords are detected.
-    if "Predictive_Score" in eligible_df.columns:
-        pred = pd.to_numeric(eligible_df["Predictive_Score"], errors="coerce").fillna(0.0)
+    if "Predictive_Score" in df.columns:
+        pred = pd.to_numeric(df["Predictive_Score"], errors="coerce").fillna(0.0)
         pmax = float(pred.max())
         if pmax > 0:
             scores += 0.1 * (pred.values / pmax)
 
-    # Normalise to [0, 1] relative to the best row so the LLM sees scores like 0.85
-    # instead of raw 0.04 values it tends to dismiss as "no match".
-    score_max = float(scores.max()) if scores.size and scores.max() > 0 else 1.0
-    norm_scores = scores / score_max
+    # Zero out ineligible rows so they never surface as top results.
+    scores[~eligible_mask] = -1.0
+
+    # Normalise eligible scores to [0, 1] relative to the best row so the LLM sees
+    # scores like 0.85 instead of raw 0.04 values it tends to dismiss as "no match".
+    eligible_scores = scores[eligible_mask]
+    score_max = float(eligible_scores.max()) if eligible_scores.size and eligible_scores.max() > 0 else 1.0
+    norm_scores = scores.copy()
+    norm_scores[eligible_mask] = eligible_scores / score_max
 
     top_idx = np.argsort(norm_scores)[::-1][:top_k]
     out: list[dict[str, Any]] = []
     for i in top_idx:
-        # Always include top_k make/model-filtered rows regardless of score magnitude.
-        row = eligible_df.iloc[int(i)].to_dict()
-        row.pop("index", None)
+        if norm_scores[i] < 0:
+            break  # only ineligible rows remain
+        row = df.iloc[int(i)].to_dict()
         row["_retrieval_similarity"] = round(float(norm_scores[i]), 4)
         row["_retrieval_method"] = "numeric_symptom_match"
         out.append(row)
