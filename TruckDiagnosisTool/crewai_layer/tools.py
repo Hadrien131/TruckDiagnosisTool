@@ -58,9 +58,16 @@ def retrieve_issue_info_tool(query_context: dict[str, Any]) -> str:
             ctx[key] = val
     issues = retrieve_issues(ctx, top_k=5)
     if not issues:
-        return "NO_MATCHES_FOUND"
+        note = ctx.get("retrieval_note", "")
+        return f"NO_MATCHES_FOUND\n{note}" if note else "NO_MATCHES_FOUND"
 
-    lines: list[str] = ["CANDIDATE_ISSUES_START"]
+    note = ctx.get("retrieval_note", "")
+    cross_fleet = ctx.get("make_model_not_in_kb", False)
+    header = (
+        f"KB_NOTE: {note}\n"
+        f"CROSS_FLEET_FALLBACK: {'true' if cross_fleet else 'false'}\n"
+    ) if note else ""
+    lines: list[str] = [header + "CANDIDATE_ISSUES_START"] if header else ["CANDIDATE_ISSUES_START"]
     for i, issue in enumerate(issues, start=1):
 
         lines.append(f"- ISSUE #{i}")

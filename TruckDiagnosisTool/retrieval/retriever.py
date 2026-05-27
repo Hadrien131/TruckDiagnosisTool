@@ -369,9 +369,10 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
 
         if subset_count == 0:
             context["retrieval_note"] = (
-                f"No rows match make/model `{make}` `{model}`; searching full KB "
-                "by symptom similarity (no fabricated vehicle linkage)."
+                f"Vehicle `{make} {model}` not found in KB; "
+                "returning most symptom-similar cases from other fleet vehicles."
             )
+            context["make_model_not_in_kb"] = True
             eligible[:] = True
 
     elif make or model:
@@ -385,6 +386,16 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
         # Subsystem heuristic can be brittle on synthetic schemas — avoid emptying eligibility.
         if int(tentative.sum()) >= 20:
             eligible = tentative
+
+    # When the vehicle make/model isn't in the KB, TF-IDF matches arbitrary text fields
+    # (route names, weather, etc.) and returns irrelevant rows. Skip straight to numeric
+    # symptom scoring so cross-fleet fallback is actually grounded in symptom similarity.
+    if context.get("make_model_not_in_kb"):
+        numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k)
+        if numeric_results:
+            return numeric_results
+        context["weak_kb_match"] = True
+        return []
 
     q_vec = vectorizer.transform([query])
     cos = q_vec.dot(matrix.transpose())
