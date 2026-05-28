@@ -24,6 +24,8 @@ def create_analyze_symptom_task(supervisor: Agent) -> Task:
 def create_retrieve_issues_task(retriever: Agent) -> Task:
     return Task(
         description=(
+            "⚠️ MANDATORY: You MUST call retrieve_issue_info_tool — do NOT copy, reproduce, or infer "
+            "KB data from conversation history. History data is stale; only the live tool call is valid.\n\n"
             "Structured context is in Task 1 output. DO NOT overwrite it.\n\n"
             "Call retrieve_issue_info_tool ONCE with this exact dict (fill values from Task 1 JSON):\n"
             "  make      → the vehicle_make value  (e.g. 'Volvo')\n"

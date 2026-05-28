@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List
 
 from crewai import Crew, Process
@@ -39,6 +40,29 @@ def build_tasks(agents) -> List:
     return [t1, t2, t3, t4, t5]
 
 
+_EVIDENCE_STRIP_PATTERNS = [
+    # Markdown Evidence section (## Evidence from Fleet KB … through next ##)
+    re.compile(r"##\s*Evidence from Fleet KB.*?(?=\n##|\Z)", re.DOTALL | re.IGNORECASE),
+    # Raw CANDIDATE_ISSUES blocks the LLM sometimes echoes verbatim
+    re.compile(r"CANDIDATE_ISSUES_START.*?CANDIDATE_ISSUES_END", re.DOTALL),
+    # Individual ISSUE rows copied into assistant messages
+    re.compile(r"(ISSUE #\d+.*?)(?=ISSUE #\d+|\Z)", re.DOTALL),
+]
+
+
+def _sanitize_assistant_msg(msg: str) -> str:
+    """
+    Remove KB evidence rows from a stored assistant message so the Task-2 LLM
+    cannot copy old retrieval data instead of calling retrieve_issue_info_tool.
+    """
+    for pat in _EVIDENCE_STRIP_PATTERNS:
+        msg = pat.sub("[KB evidence redacted — tool must be called fresh]", msg)
+    # Hard cap per assistant turn so residual detail rows don't bleed into context
+    if len(msg) > 800:
+        msg = msg[:800] + "\n...[previous response truncated for brevity]"
+    return msg.strip()
+
+
 def _format_conversation(history: List[Dict[str, str]], max_turns: int = 14, max_chars: int = 6000) -> str:
     snippets: List[str] = []
 
@@ -49,6 +73,9 @@ def _format_conversation(history: List[Dict[str, str]], max_turns: int = 14, max
         msg = str(turn.get("content", "")).strip()
         if not msg:
             continue
+        # Prevent the Task-2 LLM from seeing (and copying) old retrieval rows.
+        if role == "assistant":
+            msg = _sanitize_assistant_msg(msg)
         snippets.append(f"{role.upper()}: {msg}")
 
     merged = "\n".join(snippets)
