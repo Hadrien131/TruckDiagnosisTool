@@ -156,7 +156,7 @@ def main() -> None:
     st.markdown(
         "<div class='hero'><h1>🚛 Fleet Diagnostics Copilot</h1>"
         "<p>Grounded retrieval + procedural planning with explicit evidence separation. "
-        "<small style='opacity:.5'>v7.2</small></p></div>",
+        "<small style='opacity:.5'>v7.3</small></p></div>",
         unsafe_allow_html=True,
     )
 
@@ -203,6 +203,15 @@ def main() -> None:
             st.session_state["_kb_ready"] = True
         final_md = _strip_code_fence(result.get("final_markdown", "(no textual output captured)"))
         st.markdown(final_md)
+
+        # TEMP diagnostic: show intermediate task outputs so we can verify the
+        # retrieval tool is actually being called (not reproduced from history).
+        tasks_out = result.get("tasks_output", [])
+        if tasks_out:
+            with st.expander("🔍 Diagnostic: intermediate task outputs (temporary)", expanded=False):
+                for i, t in enumerate(tasks_out, 1):
+                    st.markdown(f"**Task {i}**")
+                    st.code(str(t)[:3000], language="text")
 
     st.session_state["messages"].append({"role": "assistant", "content": final_md})
 
