@@ -122,7 +122,7 @@ def run_diagnostic_crew(
         agents=agents,
         tasks=tasks,
         process=Process.sequential,
-        verbose=True,  # TEMP: diagnostic logging
+        verbose=False,
     )
 
     inputs = {

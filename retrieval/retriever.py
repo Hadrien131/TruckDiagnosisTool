@@ -405,15 +405,12 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
         context["weak_kb_match"] = True
         return []
 
-    # If the query contains numeric symptom keywords (vibrations, brakes, fuel…),
-    # TF-IDF is unreliable — the text corpus holds make/model, routes and maintenance
-    # types, not symptom narratives. Skip straight to numeric scoring.
-    n_symptom_signals = sum(
-        1 for pattern, col, _ in _SYMPTOM_NUMERIC_MAP
-        if col in cols and re.search(pattern, query.lower())
-    )
-    print(f"[RETRIEVE_DEBUG] make={make!r} model={model!r} query={query!r:.120} n_symptom_signals={n_symptom_signals} eligible={int(eligible.sum())}", flush=True)
-    if n_symptom_signals > 0 and int(eligible.sum()) >= 3:
+    # TF-IDF is unreliable for symptom queries — the text corpus holds make/model,
+    # route names and maintenance types, NOT symptom narratives. "Highway" matches
+    # Route_Info; "vibrations" and "fuel" do NOT appear in any text column. Always
+    # use numeric scoring for in-KB vehicles; fall through to TF-IDF only as a
+    # last resort if numeric returns nothing (e.g. no eligible rows).
+    if int(eligible.sum()) >= 3:
         numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k, query_hint=query)
         if numeric_results:
             subset_k = context.get("kb_make_model_candidates", int(eligible.sum()))
