@@ -231,11 +231,15 @@ def _retrieve_by_numeric_score(
     eligible_mask: np.ndarray,
     context: dict[str, Any],
     top_k: int,
+    query_hint: str = "",
 ) -> list[dict[str, Any]]:
     """Fallback retrieval using numeric symptom scoring when TF-IDF finds no text matches."""
     # Build the richest possible query from all available context fields so that
     # symptom keywords are detected even if the 'symptoms' key is sparse or empty.
+    # query_hint is the proven-good symptom string from retrieve_issues() — always
+    # include it first so keywords are detected even when the LLM passes a sparse context.
     rich_query = " ".join(filter(None, [
+        query_hint,
         str(context.get("symptoms") or ""),
         str(context.get("primary_symptoms") or ""),
         str(context.get("free_text") or ""),
@@ -392,7 +396,7 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
     # (route names, weather, etc.) and returns irrelevant rows. Skip straight to numeric
     # symptom scoring so cross-fleet fallback is actually grounded in symptom similarity.
     if context.get("make_model_not_in_kb"):
-        numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k)
+        numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k, query_hint=query)
         if numeric_results:
             return numeric_results
         context["weak_kb_match"] = True
@@ -406,7 +410,7 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
         if col in cols and re.search(pattern, query.lower())
     )
     if n_symptom_signals > 0 and int(eligible.sum()) >= 3:
-        numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k)
+        numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k, query_hint=query)
         if numeric_results:
             subset_k = context.get("kb_make_model_candidates", int(eligible.sum()))
             context["retrieval_note"] = (
@@ -462,7 +466,7 @@ def retrieve_issues(context: dict[str, Any], top_k: int = 3) -> list[dict[str, A
         # TF-IDF found no strong text matches — try numeric symptom scoring on the
         # make/model-filtered candidates before giving up entirely.
         if int(eligible.sum()) >= 3:
-            numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k)
+            numeric_results = _retrieve_by_numeric_score(df, eligible, context, top_k, query_hint=query)
             if numeric_results:
                 return numeric_results
 
