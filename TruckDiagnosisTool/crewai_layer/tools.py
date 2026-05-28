@@ -1,6 +1,8 @@
 import json
+import re
 from typing import Any
 
+import numpy as np
 from crewai.tools import tool
 
 from retrieval.retriever import retrieve_issues, retrieve_safety_notes, get_session_context
@@ -39,6 +41,93 @@ def _normalise_context(raw: Any) -> dict[str, Any]:
     return out
 
 
+def _numeric_override(ctx: dict, issues: list, top_k: int = 5) -> list:
+    """
+    If retrieve_issues used TF-IDF (evidenced by no _retrieval_method on any row),
+    re-run using explicit numeric symptom scoring directly in this layer.
+    This is a belt-and-suspenders guard that operates independently of retriever.py
+    version — the fix lives here so it can't be missed by a stale module cache.
+    Only fires when both make and model are known (in-KB vehicle).
+    """
+    make = str(ctx.get("make") or "").strip()
+    model = str(ctx.get("model") or "").strip()
+    if not (make and model):
+        return issues  # cross-fleet path; let retriever handle it
+
+    # If numeric scoring already ran, nothing to do
+    if any(i.get("_retrieval_method") == "numeric_symptom_match" for i in issues):
+        return issues
+
+    # TF-IDF path detected — apply numeric override
+    try:
+        from retrieval.retriever import _build_issues_search_index, _compute_numeric_scores
+
+        df, _, _, _ = _build_issues_search_index(force=False)
+
+        # Locate make/model column
+        mm_col = next(
+            (c for c in df.columns if "make_and_model" in c.lower()
+             or ("make" in c.lower() and "model" in c.lower())),
+            None,
+        )
+        if mm_col is None:
+            return issues
+
+        lowered = df[mm_col].astype(str).str.lower()
+        mm_mask = lowered.str.contains(re.escape(make.lower()), na=False) & \
+                  lowered.str.contains(re.escape(model.lower()), na=False)
+        eligible = mm_mask.to_numpy(dtype=bool)
+
+        if int(eligible.sum()) < 3:
+            return issues  # too few rows — keep whatever retriever returned
+
+        # Build symptom query from all available context fields + session
+        query_hint = " ".join(filter(None, [
+            str(ctx.get("symptoms") or ""),
+            str(ctx.get("user_message") or ""),
+            str(ctx.get("primary_symptoms") or ""),
+            str(ctx.get("free_text") or ""),
+        ]))
+
+        eligible_df = df[eligible_mask := eligible].reset_index(drop=False)
+        scores, n_signals = _compute_numeric_scores(eligible_df, query_hint)
+
+        # Predictive score tiebreaker
+        if "Predictive_Score" in eligible_df.columns:
+            import pandas as pd
+            pred = pd.to_numeric(eligible_df["Predictive_Score"], errors="coerce").fillna(0.0)
+            pmax = float(pred.max())
+            if pmax > 0:
+                scores += 0.1 * (pred.values / pmax)
+
+        score_max = float(scores.max()) if scores.size and scores.max() > 0 else 1.0
+        norm_scores = scores / score_max
+        top_idx = np.argsort(norm_scores)[::-1][:top_k]
+
+        out = []
+        for i in top_idx:
+            row = eligible_df.iloc[int(i)].to_dict()
+            row.pop("index", None)
+            row["_retrieval_similarity"] = round(float(norm_scores[i]), 4)
+            row["_retrieval_method"] = "numeric_symptom_match"
+            out.append(row)
+
+        if out:
+            subset_k = int(eligible.sum())
+            ctx["retrieval_note"] = (
+                f"{make} {model} found in KB ({subset_k} rows); "
+                f"numeric override applied ({n_signals} signal(s); "
+                f"query={query_hint[:60]!r})."
+            )
+            ctx["make_model_not_in_kb"] = False
+            return out
+
+    except Exception as exc:  # noqa: BLE001
+        ctx["retrieval_note"] = f"numeric_override_error: {exc}"
+
+    return issues
+
+
 @tool("retrieve_issue_info_tool")
 def retrieve_issue_info_tool(query_context: dict[str, Any]) -> str:
     """
@@ -57,6 +146,8 @@ def retrieve_issue_info_tool(query_context: dict[str, Any]) -> str:
         if key not in ctx or not ctx[key]:
             ctx[key] = val
     issues = retrieve_issues(ctx, top_k=5)
+    # Belt-and-suspenders: if retriever used TF-IDF, force numeric scoring here
+    issues = _numeric_override(ctx, issues)
     if not issues:
         note = ctx.get("retrieval_note", "")
         return f"NO_MATCHES_FOUND\n{note}" if note else "NO_MATCHES_FOUND"
