@@ -248,9 +248,6 @@ def _retrieve_by_numeric_score(
         str(context.get("ambient_notes") or ""),
         str(context.get("user_message") or ""),
     ]))
-    # Temporary runtime debug — prints to stdout (Streamlit Cloud captures stdout).
-    print(f"[NUMERIC_SCORE_DEBUG] query_hint={query_hint!r:.120} rich_query={rich_query!r:.120}", flush=True)
-
     # Subset to eligible rows first, then score — this preserves the exact ranking
     # behaviour that was validated in v6.4 (Poor-brake / high-vibration rows surface first).
     eligible_df = df[eligible_mask].reset_index(drop=False)
@@ -282,8 +279,7 @@ def _retrieve_by_numeric_score(
     if out:
         method = f"numeric symptom match ({n_signals} signal(s))" if n_signals else "predictive score / failure history ranking"
         context["retrieval_note"] = (
-            f"TF-IDF found no text matches; returned {len(out)} rows by {method}. "
-            f"[DBG hint={query_hint[:60]!r} signals={n_signals}]"
+            f"TF-IDF found no text matches; returned {len(out)} rows by {method}."
         )
         context["retrieval_method"] = "numeric_fallback"
 
